@@ -56,7 +56,7 @@ static void print_memory_info()
 
 void app_main()
 {
-    ESP_LOGI(TAG, "Blinky application");
+    ESP_LOGI(TAG, "Blinky application (new feature added)");
     print_memory_info();
 
     app_wifi_init(WIFI_SSID, WIFI_PWD, on_connected, NULL);
