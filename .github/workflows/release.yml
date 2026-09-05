@@ -1,0 +1,40 @@
+name: Publish release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create empty .env file
+        run: touch .env
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        id: cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+      - name: Build firmware
+        uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: |
+            idf.py -C blinky build
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: "Blinky Firmware ${{ github.ref_name }}"
+          body: ${{ steps.cliff.outputs.content }}
+          files: |
+            blinky/build/blinky.bin
+            blinky/build/bootloader/bootloader.bin
+            blinky/build/partition_table/partition-table.bin
+            blinky/build/flasher_args.json
