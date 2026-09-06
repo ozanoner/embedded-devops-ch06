@@ -6,7 +6,9 @@ on:
 permissions:
   contents: write
 jobs:
-  release:
+  # Cloud job: build the UNSIGNED app and hand it to the signing job. Nothing is
+  # published here, so an unsigned image can never reach a release.
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,19 +24,61 @@ jobs:
           args: --latest --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
-      - name: Build firmware
+      - name: Build firmware (unsigned)
         uses: devcontainers/ci@v0.3
         with:
           push: never
           runCmd: |
             idf.py -C blinky build
-      - name: Publish release
-        uses: softprops/action-gh-release@v3
+      - name: Save release notes to file
+        run: |
+          cat > release-notes.md <<'EOF'
+          ${{ steps.cliff.outputs.content }}
+          EOF
+      - name: Upload unsigned firmware
+        uses: actions/upload-artifact@v4
         with:
-          name: "Blinky Firmware ${{ github.ref_name }}"
-          body: ${{ steps.cliff.outputs.content }}
-          files: |
+          name: firmware-unsigned
+          path: |
             blinky/build/blinky.bin
             blinky/build/bootloader/bootloader.bin
             blinky/build/partition_table/partition-table.bin
             blinky/build/flasher_args.json
+      - name: Upload release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  # Self-hosted job (runs next to SignServer in the ch06-servers compose stack):
+  # download the unsigned firmware, sign blinky.bin via SignServer, then publish
+  # the single release with the signed assets.
+  sign-and-release:
+    needs: build
+    runs-on: [self-hosted, linux, local]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download unsigned firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-unsigned
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+      - name: Install signing tools (jq + esptool)
+        run: bash scripts/install-signing-tools.sh
+      - name: Sign via local SignServer
+        run: bash scripts/sign-via-signserver.sh
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: "Blinky Firmware ${{ github.ref_name }}"
+          body_path: release-notes.md
+          files: |
+            blinky.bin
+            bootloader/bootloader.bin
+            partition_table/partition-table.bin
+            flasher_args.json
