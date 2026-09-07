@@ -9,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "devops_easy_connect.h"
+#include "app_enroll.h"
+#include "app_wifi.h"
 
 #define TAG "app"
 
@@ -59,7 +61,9 @@ void app_main()
     ESP_LOGI(TAG, "Blinky application (new feature added)");
     print_memory_info();
 
-    app_wifi_init(WIFI_SSID, WIFI_PWD, on_connected, NULL);
+    AppEnroll_init();
+
+    app_wifi_init(AppWifi_ssid(), AppWifi_pwd(), on_connected, NULL);
     AppBSP_init();
     AppBSPButton_set_handler(handle_button_click);
 
@@ -125,12 +129,26 @@ static bool run_diagnostics(void)
 
 static void run_ota_check(void *arg)
 {
-    ESP_LOGI(TAG, "WiFi connected, running OTA check...");
+    ESP_LOGI(TAG, "WiFi connected, checking enrollment and OTA ...");
+
+    esp_err_t err = AppEnroll_ensure();
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Enrollment OK (CN=%s)", AppEnroll_device_id());
+    }
+    else if (err == ESP_ERR_NOT_FOUND)
+    {
+        ESP_LOGW(TAG, "Factory identity not provisioned, cannot enroll");
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Enrollment deferred (err=%s)", esp_err_to_name(err));
+    }
 
     bool update_available = AppOTA_check_for_update();
     if (update_available)
     {
-        esp_err_t err = AppOTA_perform_update();
+        err = AppOTA_perform_update();
         if (err != ESP_OK)
         {
             ESP_LOGE(TAG, "OTA update failed: %s", esp_err_to_name(err));
